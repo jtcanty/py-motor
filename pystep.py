@@ -52,6 +52,15 @@ def _logL(trace, curr_steps, n_pts, n_steps):
     return (sic_min, step_idx)
    
 
+def _merge_steps(trace_noisy, curr_steps):
+    '''Construct the optimal SIC fit and plot it. Output the fit coordinates'''
+    fit_split = np.split(trace_noisy, np.sort(curr_steps))
+    dwell_means = np.array([np.mean(fit_split[i]) for i in range(0, len(fit_split))])
+    dwell_fit = [dwell_means[j] * np.ones(len(fit_split[j])) for j in range(0, len(fit_split))]
+    fit_func = np.concatenate(dwell_fit)
+
+    return fit_func   
+
 
 class Simulation(object):
     '''This class defines a simulation object
@@ -70,8 +79,8 @@ class Simulation(object):
                  bkwd_step_sigma=3,
                  fwd_freq=.8, 
                  bkwd_freq=.2,
-                 step_rate=.1, 
-                 framerate=.002,
+                 step_rate=1, 
+                 framerate=.03,
                  sigma_noise=4, 
                  num_steps=30,
                  num_trace=1):
@@ -135,7 +144,7 @@ class Simulation(object):
         self.num_steps = num_steps  
     
     
-    def build_trace(self):
+    def build(self):
         '''The main loop for building a single time-series trace
 
             Parameters
@@ -240,19 +249,10 @@ class Simulation(object):
                 break
         
         # Assemble steps into a trace fit
-        fit = build_sic_fit(trace_noisy, curr_steps)
+        fit = _merge_steps(trace_noisy, curr_steps)
 
         return (fit, curr_steps)
 
-    
-    def build_sic_fit(trace_noisy, curr_steps):
-        '''Construct the optimal SIC fit and plot it. Output the fit coordinates'''
-        fit_split = np.split(trace_noisy, np.sort(curr_steps))
-        dwell_means = np.array([np.mean(fit_split[i]) for i in range(0, len(fit_split))])
-        dwell_fit = [dwell_means[j] * np.ones(len(fit_split[j])) for j in range(0, len(fit_split))]
-        fit_func = np.concatenate(dwell_fit)
-
-        return fit_func
     
     
     def assemble_steps(ntraces, fits):
@@ -311,7 +311,6 @@ class Simulation(object):
             List of integers corresponding to length of a dwell (in seconds)
             
         '''
-
         all_dwells = []
 
         for i in range(0,ntraces):
