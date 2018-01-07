@@ -1,5 +1,5 @@
 
-# A python implementation of simulated molecular motor traces #
+# A library for simulating time-series data with jump points #
 
 import numpy as np
 import pandas as pd
@@ -8,10 +8,8 @@ import math
 import statsmodels.api as sm
 from scipy.optimize import curve_fit
 
-
-
-def _log_likelihood(trace, curr_steps, n_pts, n_steps):
-    ''' Calculate the SIC statistic for all models with i steps. 
+def _logL(trace, curr_steps, n_pts, n_steps):
+    ''' Calculate the minimum SIC statistic for all models with n steps. 
     
     Parameters
     ----------
@@ -25,7 +23,7 @@ def _log_likelihood(trace, curr_steps, n_pts, n_steps):
         Index of step that yielded the lowest SIC score 
         
     '''
-    sic_array = np.zeros(n_pts)
+    sic_fit = np.zeros(n_pts)
     
     for step in range(0,n_pts):
         if step in curr_steps:
@@ -43,13 +41,13 @@ def _log_likelihood(trace, curr_steps, n_pts, n_steps):
         # Compute SIC score
         n_steps = len(trace_split) - 1
         sic = (n_steps + 2) * np.log(n_pts) + n_pts * np.log(variance_est)
-        sic_array[step] = SIC
+        sic_fit[step] = sic
         
     # Compute minimum SIC score and step position
-    mask = (sic_array != 0)
-    trunc_step_idx = np.argmin(sic_array[mask])
-    step_idx = np.arange(sic_array.shape[0])[mask][trunc_step_idx]
-    sic_min = sic_array[step_idx]
+    mask = (sic_fit != 0)
+    trunc_step_idx = np.argmin(sic_fit[mask])
+    step_idx = np.arange(sic_fit.shape[0])[mask][trunc_step_idx]
+    sic_min = sic_fit[step_idx]
 
     return (sic_min, step_idx)
    
@@ -137,12 +135,13 @@ class Simulation(object):
         self.num_steps = num_steps  
     
     
-    def build(self):
-        '''The main loop for building a single-molecule trace
+    def build_trace(self):
+        '''The main loop for building a single time-series trace
 
             Parameters
             ----------
-            
+            self : object
+                Self object
 
             Returns
             -------
@@ -158,7 +157,7 @@ class Simulation(object):
 
         for step in range(0, self.num_steps):
 
-            # Create dwell
+            # Construct dwell
             dwell_length = random.expovariate(1 / self.step_rate)
             dwell_pts = int(dwell_length // self.framerate)
 
@@ -169,12 +168,13 @@ class Simulation(object):
             dwell_ideal = np.full(dwell_pts, trace_ideal[-1])
             trace_ideal = np.append(trace_ideal, dwell_ideal)
             
-            # Add next step. Roll dice to decide step direction and then sample gaussian pdf for step-size
-            pb = np.random.random_sample()
+            # Randomly decide step direction. Sample step-size from normal distribution.
+            pr = np.random.random_sample()
 
-            if pb > self.bkwd_freq:
+            if pr > self.bkwd_freq:
                 step_dist = random.gauss(self.fwd_step_mu, self.fwd_step_sigma)
-            elif pb <= self.bkwd_freq:
+            
+            elif pr <= self.bkwd_freq:
                 step_dist = -random.gauss(self.bkwd_step_mu, self.bkwd_step_sigma)
 
             trace_ideal[-1] += step_dist
@@ -196,16 +196,19 @@ class Simulation(object):
     
     
     def fit(self, trace_noisy):
-        '''Main function to fit the simulated traces using the SIC step-fitting algorithm
+        '''Fit the simulated traces using the SIC step-fitting algorithm
 
         Parameters
         ----------
         trace_noisy: np.array
             A numpy array of coordinates corresponding to simulated trace
+            
         curr_steps: list
             Array of indices of the recorded steps
+            
         min_threshold: int
             Minimum number of points to be considered a dwell
+            
         SIC_curr: float
             Current minimized SIC value of fit
 
@@ -226,40 +229,33 @@ class Simulation(object):
 
         while True:
             # Compute SIC and add new step
-            (sic_new, step_new_idx) = logLikelihood(trace_noisy, curr_steps, n_pts, n_steps)
+            (sic_new, step_new_idx) = _logL(trace_noisy, curr_steps, 
+                                                    n_pts, n_steps)
             if sic_curr >= sic_new:
                 curr_steps.append(step_new_idx)
                 sic_curr = sic_new
                 continue
+                
             elif sic_curr < sic_new:
                 break
+        
+        # Assemble steps into a trace fit
+        fit = build_sic_fit(trace_noisy, curr_steps)
 
-        fit = plot(trace_noisy, curr_steps)
-
-        return (fit,curr_steps)
+        return (fit, curr_steps)
 
     
-    def plot(trace_noisy, curr_steps):
-        '''Construct the optimal SIC fit and plot it. Output the fit coordinates
-        
-        Parameters
-        ----------
-        
-        Returns
-        -------
-        fit_func: np.array
-            A numpy array of the fit coordinates 
-            
-        '''
-        fit_split = np.split(trace_noisy,np.sort(curr_steps))
-        dwell_means = np.array([np.mean(fit_split[i]) for i in range(0,len(fit_split))])
-        dwell_fit = [dwell_means[j] * np.ones(len(fit_split[j])) for j in range(0,len(fit_split))]
+    def build_sic_fit(trace_noisy, curr_steps):
+        '''Construct the optimal SIC fit and plot it. Output the fit coordinates'''
+        fit_split = np.split(trace_noisy, np.sort(curr_steps))
+        dwell_means = np.array([np.mean(fit_split[i]) for i in range(0, len(fit_split))])
+        dwell_fit = [dwell_means[j] * np.ones(len(fit_split[j])) for j in range(0, len(fit_split))]
         fit_func = np.concatenate(dwell_fit)
 
         return fit_func
     
     
-    def steps(ntraces, fits):
+    def assemble_steps(ntraces, fits):
         '''Create array of all step-sizes. Create DataFrame of binary arrays for step locations.
 
         Parameters
@@ -297,7 +293,7 @@ class Simulation(object):
         return (all_steps,step_location)
 
     
-    def dwells(ntraces, step_location, framerate):
+    def assemble_dwells(ntraces, step_location, framerate):
         '''Assemble dwells of all step locations
 
         Parameters
@@ -329,7 +325,7 @@ class Simulation(object):
         return all_dwells_converted
 
 
-    def calculate_statistics(all_steps, all_dwells):
+    def stats(all_steps, all_dwells):
         '''Calculate stepping statistics
 
         Parameters
