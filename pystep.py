@@ -63,115 +63,110 @@ def _merge_steps(trace_noisy, curr_steps):
 
 
 class Simulation(object):
-    '''This class defines a simulation object
-    
-    Parameters
-    ----------
-    
+    ''' Generates time-series data with discrete jump-points.
+
     Attributes
     ----------
+    pos_mu : float
+        The mean of the positive jump-point distance.
+        Units should be 'nm'.
+
+    pos_sigma : float
+        The standard deviation of the mean positive jump-point 
+        distance. Units should be 'nm'.
+
+    neg_mu : float
+        The mean of the negative jump-point distance.
+        Units should be 'nm'.
+
+    neg_sigma : float
+        The standard deviation of the mean negative jump-point 
+        distance. Units should be 'nm'.
+
+    pos_freq : float
+        The expected proportion of positive jump points.
+
+    neg_freq : float
+        The expected proportion of negative jump points.
+
+    k : float
+        The expected jump-point frequency. Units should be 's^-1'.
     
-    ''' 
+    rate: float
+        The time resolution of the time series signal.
+        Units should be 's'
+
+    GN_sigma : float
+        The expected gaussian white noise (GN) of the time-series signal.
+        Units should be 'nm'.
+
+    n_steps : int
+        Number of expected steps in the time-series.
+
+    num_trace : int
+        Number of expected traces to be simulated.
+
+    '''
     def __init__(self, 
-                 fwd_step_mu=12, 
-                 fwd_step_sigma=3,
-                 bkwd_step_mu=12, 
-                 bkwd_step_sigma=3,
+                 pos_mu=12, 
+                 pos_sigma=3,
+                 neg_mu=12, 
+                 neg_sigma=3,
                  fwd_freq=.8, 
                  bkwd_freq=.2,
-                 step_rate=1, 
-                 framerate=.03,
-                 sigma_noise=4, 
-                 num_steps=30,
+                 k=1, 
+                 rate=.03,
+                 GN_sigma=4, 
+                 n_steps=30,
                  num_trace=1):
-        '''
-
-        Attributes
-        ----------
-        fwd_step_mu : int
-            Mean of the forward step-size (nm)
-            
-        fwd_step_sigma : int
-            Standard deviation of the forward step-size (nm)
-            
-        bkwd_step_mu : int
-            Mean of the backward step-size (nm)
-            
-        bkwd_step_sigma : int
-            Standard deviation of the backward step-size (nm)
-            
-        fwd_freq : float
-            Frequency of forward steps
-            
-        bkwd_freq : float
-            Frequency of backward steps 
-            
-        step_rate : float
-            Stepping rate (sec^-1)
-            
-        framerate : float
-            Time resolution of the experiment (sec)
-            
-        sigma_noise : int
-            White noise of the time-series (nm)
-            
-        num_steps : int
-            Number of expected steps in the time-series
-            
-        num_trace : int
-            Number of expected traces to be simulated
-            
-        Returns
-        -------
-        self : class instance
-            Instance of the Simulation class
-            
-        '''
+       
         # Initialize step-size parameters
-        self.fwd_step_mu = fwd_step_mu
-        self.fwd_step_sigma = fwd_step_sigma
-        self.bkwd_step_mu = bkwd_step_mu
-        self.bkwd_step_sigma = bkwd_step_sigma
+        self.pos_mu = pos_mu
+        self.pos_sigma = pos_sigma
+        self.neg_mu = neg_mu
+        self.neg_sigma = neg_sigma
 
         # Initialize step frequency parameters         
         self.fwd_freq = fwd_freq
         self.bkwd_freq = bkwd_freq
         
         # Initialize remaining parameters         
-        self.step_rate = step_rate
-        self.framerate = framerate
-        self.sigma_noise = sigma_noise
-        self.num_steps = num_steps  
+        self.k = k
+        self.rate = rate
+        self.sigma = GN_sigma
+        self.n_steps = n_steps  
     
     
     def build(self):
         '''The main loop for building a single time-series trace
 
-            Parameters
-            ----------
-            self : object
-                Self object
+        Parameters
+        ----------
+        self : object
+            The time-series simulation object.
 
-            Returns
-            -------
-            trace_noisy: np.array
-                Coordinates of a simulated trace
-                
-            trace_ideal: np.array
-                Coordinates of simulated trace without noise
+        Returns
+        -------
+        trace_noisy : array, shape = [n_points]
+            The time vs. displacement coordinates of the simulated 
+            time series including the expected white noise.
+
+        trace_ideal : array, shape = [n_points]
+            The time vs. displacement coordinates of the simulated
+            time series without added white-noise.
                 
         '''
         trace_noisy = np.array([0])
         trace_ideal = np.array([0])
 
-        for step in range(0, self.num_steps):
+        for step in range(0, self.n_steps):
 
-            # Construct dwell
-            dwell_length = random.expovariate(1 / self.step_rate)
-            dwell_pts = int(dwell_length // self.framerate)
+            # Construct dwell from exponential distribution
+            dwell_len = random.expovariate(1 / self.k)
+            dwell_pts = int(dwell_len // self.rate)
 
-            noise = np.random.normal(0, self.sigma_noise, dwell_pts)
-            dwell_noise = np.full(dwell_pts, trace_noisy[-1]) + noise
+            GN = np.random.normal(0, self.GN_sigma, dwell_pts)
+            dwell_noise = np.full(dwell_pts, trace_noisy[-1]) + GN
             trace_noisy = np.append(trace_noisy, dwell_noise)
 
             dwell_ideal = np.full(dwell_pts, trace_ideal[-1])
@@ -181,21 +176,21 @@ class Simulation(object):
             pr = np.random.random_sample()
 
             if pr > self.bkwd_freq:
-                step_dist = random.gauss(self.fwd_step_mu, self.fwd_step_sigma)
+                step_dist = random.gauss(self.pos_mu, self.pos_sigma)
             
             elif pr <= self.bkwd_freq:
-                step_dist = -random.gauss(self.bkwd_step_mu, self.bkwd_step_sigma)
+                step_dist = -random.gauss(self.neg_mu, self.neg_sigma)
 
             trace_ideal[-1] += step_dist
             trace_noisy[-1] += step_dist     
             step += 1
 
         # Add final dwell
-        dwell_length = random.expovariate(1 / self.step_rate)
-        dwell_pts = int(dwell_length // self.framerate)
+        dwell_len = random.expovariate(1 / self.k)
+        dwell_pts = int(dwell_len // self.rate)
 
-        noise = np.random.normal(0, self.sigma_noise, dwell_pts)
-        dwell = np.full(dwell_pts, trace_noisy[-1]) + noise
+        GN = np.random.normal(0, self.GN_sigma, dwell_pts)
+        dwell = np.full(dwell_pts, trace_noisy[-1]) + GN
         trace_noisy = np.append(trace_noisy, dwell)
 
         dwell_ideal = np.full(dwell_pts, trace_ideal[-1])
@@ -223,7 +218,7 @@ class Simulation(object):
 
         Returns 
         ------- 
-        fit: np.array
+        fit: array
             A numpy array of coordinates corresponding to the optimal SIC fit 
 
         '''
@@ -234,18 +229,18 @@ class Simulation(object):
         n_pts = len(trace_noisy)
 
         # Calculate initial SIC value
-        sic_curr = (n_steps + 2) * np.log(n_pts) + n_pts * np.log(np.var(trace_noisy)) + n_pts
+        SIC = (n_steps + 2) * np.log(n_pts) + n_pts * np.log(np.var(trace_noisy)) + n_pts
 
         while True:
             # Compute SIC and add new step
-            (sic_new, step_new_idx) = _logL(trace_noisy, curr_steps, 
+            (SIC_next, step_new_idx) = _logL(trace_noisy, curr_steps, 
                                                     n_pts, n_steps)
-            if sic_curr >= sic_new:
+            if SIC >= SIC_next:
                 curr_steps.append(step_new_idx)
-                sic_curr = sic_new
+                SIC = SIC_next
                 continue
                 
-            elif sic_curr < sic_new:
+            elif SIC < SIC_next:
                 break
         
         # Assemble steps into a trace fit
@@ -293,7 +288,7 @@ class Simulation(object):
         return (all_steps,step_location)
 
     
-    def assemble_dwells(ntraces, step_location, framerate):
+    def assemble_dwells(ntraces, step_location, rate):
         '''Assemble dwells of all step locations
 
         Parameters
@@ -302,7 +297,7 @@ class Simulation(object):
             Number of traces
         step_location: pandas DataFrame
             DataFrame of binary arrays where 1s correspond to step locations
-        framerate: int
+        rate: int
             Time resolution of the simulation (in seconds)
 
         Returns
@@ -320,44 +315,46 @@ class Simulation(object):
             all_dwells += [len(dwells[j]) for j in range(0,len(dwells))]
 
         # Convert from frames to seconds
-        all_dwells_converted = [i*framerate for i in all_dwells]
+        all_dwells_converted = [i*rate for i in all_dwells]
         return all_dwells_converted
 
 
     def stats(all_steps, all_dwells):
-        '''Calculate stepping statistics
+        '''Compute important statistics of the time-series.
 
         Parameters
         ----------
-        all_steps:  list 
-            List of step sizes (in nm)
-        all_dwells:  list
-            List of dwell times (in seconds)
+        all_steps :  list 
+            A list of jump-point sizes. Units are 'nm'.
+            
+        all_dwells :  list
+            A List of dwell times betwen jump-points.
+            Units are 's'.
 
         Returns
         -------
-        stats: list
-            List containing following variables
+        stats: list, shape = [8,]
+            A list of the parameters listed below.
             
-        fwd_mu:    float64
+        fwd_mu: float
             Mean of forward step-size
 
-        bkwd_mu:   float64
+        bkwd_mu: float
             Mean of backwards step-size
 
-        fwd_std:   float64
+        fwd_std: float
             Standard deviation of forwards step-size
 
-        bkwd_std:  float64
+        bkwd_std: float
             Standard deviation of backwards step-size
             
-        fwd_freq:  float64
+        fwd_freq: float
             Frequency of forward steps
             
-        bkwd_freq: float64
+        bkwd_freq: float
             Frequency of backward steps
             
-        dwell_k: float64
+        dwell_k: float
             Dwell-time distribution rate constant 
             
         dwell_params: list
