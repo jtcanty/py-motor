@@ -50,7 +50,25 @@ def _logL(trace, curr_steps, n_pts, n_steps):
     sic_min = sic_fit[step_idx]
 
     return (sic_min, step_idx)
-   
+
+
+def _sic(n_steps, n_pts, trace_noisy):
+    '''Compute the current SIC score'''
+    P = n_steps
+    N = n_pts
+    var = np.var(trace_noisy)
+    SIC = (P + 2) * np.log(N) + N * np.log(var)
+    
+    return SIC
+
+
+def _dwell(k, rate):
+    ''' Compute number of data points in dwell'''
+    dwell_len = random.expovariate(1 / k)
+    dwell_pts = int(dwell_len // rate)
+    
+    return dwell_pts
+
 
 def _merge_steps(trace_noisy, curr_steps):
     '''Construct the optimal SIC fit and plot it. Output the fit coordinates'''
@@ -140,11 +158,6 @@ class Simulation(object):
     def build(self):
         '''The main loop for building a single time-series trace
 
-        Parameters
-        ----------
-        self : object
-            The time-series simulation object.
-
         Returns
         -------
         trace_noisy : array, shape = [n_points]
@@ -162,32 +175,33 @@ class Simulation(object):
         for step in range(0, self.n_steps):
 
             # Construct dwell from exponential distribution
-            dwell_len = random.expovariate(1 / self.k)
-            dwell_pts = int(dwell_len // self.rate)
+            dwell_pts = _dwell(self.k, self.rate)
+            
+            dwell_ideal = np.full(dwell_pts, trace_ideal[-1])
+            trace_ideal = np.append(trace_ideal, dwell_ideal)
 
             GN = np.random.normal(0, self.GN_sigma, dwell_pts)
             dwell_noise = np.full(dwell_pts, trace_noisy[-1]) + GN
             trace_noisy = np.append(trace_noisy, dwell_noise)
 
-            dwell_ideal = np.full(dwell_pts, trace_ideal[-1])
-            trace_ideal = np.append(trace_ideal, dwell_ideal)
             
             # Randomly decide step direction. Sample step-size from normal distribution.
             pr = np.random.random_sample()
 
             if pr > self.bkwd_freq:
-                step_dist = random.gauss(self.pos_mu, self.pos_sigma)
+                step_size = random.gauss(self.pos_mu, self.pos_sigma)
             
             elif pr <= self.bkwd_freq:
-                step_dist = -random.gauss(self.neg_mu, self.neg_sigma)
+                step_size = -random.gauss(self.neg_mu, self.neg_sigma)
 
-            trace_ideal[-1] += step_dist
-            trace_noisy[-1] += step_dist     
+            trace_ideal[-1] += step_size
+            trace_noisy[-1] += step_size     
+            
             step += 1
+            
 
         # Add final dwell
-        dwell_len = random.expovariate(1 / self.k)
-        dwell_pts = int(dwell_len // self.rate)
+        dwell_pts = _dwell(self.k, self.rate)
 
         GN = np.random.normal(0, self.GN_sigma, dwell_pts)
         dwell = np.full(dwell_pts, trace_noisy[-1]) + GN
@@ -229,7 +243,7 @@ class Simulation(object):
         n_pts = len(trace_noisy)
 
         # Calculate initial SIC value
-        SIC = (n_steps + 2) * np.log(n_pts) + n_pts * np.log(np.var(trace_noisy)) + n_pts
+        SIC = _sic(n_steps, n_pts, trace_noisy)
 
         while True:
             # Compute SIC and add new step
